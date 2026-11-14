@@ -38,6 +38,9 @@ button:hover,label.btn:hover{background:var(--ac);color:#fff}
 #cover.blankback .b img{visibility:hidden}
 #cover.snap{transition:transform .9s ease}
 #book.rightonly{clip-path:inset(0 0 0 50%);transition:none}
+#wrap.rtl #cover{left:0;transform-origin:right center}
+#wrap.rtl #cover.open{transform:rotateY(180deg)}
+#wrap.rtl #book.rightonly{clip-path:inset(0 50% 0 0)}
 #drop{text-align:center;opacity:.8;line-height:1.9}
 #msg{position:absolute;inset:auto 0 66px 0;z-index:25;text-align:center;font-size:13px;opacity:.8;pointer-events:none}
 .page img{width:100%;height:100%;display:block;background:#fff}
@@ -52,6 +55,7 @@ button:hover,label.btn:hover{background:var(--ac);color:#fff}
   <div id="ui">
     <label class="btn" id="openBtn">PDFを開く<input id="file" type="file" accept="application/pdf" hidden></label>
     <button id="tocBtn" hidden>目次</button>
+    <button id="dirBtn" title="ページをめくる向きを切り替え">右開き</button>
     <button id="prev">◀</button>
     <span id="info">- / -</span>
     <button id="next">▶</button>
@@ -65,11 +69,14 @@ button:hover,label.btn:hover{background:var(--ac);color:#fff}
 // ===== 設定 =====
 // サイトに置いたPDFを最初から表示したい場合はここにパスを書く(例: "book.pdf")。
 // または ?pdf=book.pdf のようにURLで指定もできます。空なら手動で開く方式。
-const DEFAULT_PDF = "novel.pdf";
+const DEFAULT_PDF = "";
 // 読み込めるPDFを指定した場合(上記 or ?pdf=)は「PDFを開く」ボタンを自動で隠します。
 // 目次(チャプター)を自分で決めたい場合はここに書く。空ならPDF内のしおりを自動で使います。
 // 例: [{title:"はじめに", page:2}, {title:"第1章", page:5}, {title:"1-1 節", page:6, level:1}]
 const CHAPTERS = [];
+// 綴じ方。"rtl"=右開き(縦書きの本・マンガ) / "ltr"=左開き(横書きの本)。?binding=ltr でも指定できます。
+const BINDING = "rtl";
+let RTL = (new URLSearchParams(location.search).get("binding") || BINDING) !== "ltr";
 const RENDER_WIDTH = 0;    // 1ページの描画解像度(px)。0=画面の大きさから自動(1600〜3200)。固定したい場合は数値を入れる
 const JPEG_QUALITY = 0.95; // 画質(0〜1)
 
@@ -177,7 +184,8 @@ function blankPage(){
   return c.toDataURL("image/png");
 }
 
-let wrapEl = null, coverEl = null, opened = false;
+let wrapEl = null, coverEl = null, opened = false, bookN = 0, initDone = false;
+const firstSpread = () => RTL ? bookN - 2 : 0; // 表紙の次の見開き(読み始め)のリスト番号
 
 function build(){
   // destroy()は本体のDOM要素ごと消すので、毎回新しい要素を作り直す
@@ -189,16 +197,21 @@ function build(){
   // 2ページ目以降を見開きの本にする。表紙は別パーツ(裏が白紙のめくり板)として扱う
   const list = images.slice(1);
   if(list.length === 0 || list.length % 2) list.push(blankPage());
+  bookN = list.length;
+  initDone = false;
+  const firstImg = list[0];
+  if(RTL) list.reverse(); // 右開きは並びを逆にして、右から左へ読み進める
 
   wrapEl = document.createElement("div");
   wrapEl.id = "wrap";
+  if(RTL) wrapEl.className = "rtl";
   bookEl = document.createElement("div");
   bookEl.id = "book";
   coverEl = document.createElement("div");
   coverEl.id = "cover";
   coverEl.innerHTML = '<div class="f"><img alt="表紙"></div><div class="b"><img alt=""></div>';
   coverEl.querySelector(".f img").src = images[0];
-  coverEl.querySelector(".b img").src = list[0]; // 開くときは裏面に2ページ目を載せる(白紙を見せない)
+  coverEl.querySelector(".b img").src = firstImg; // 開くときは裏面に2ページ目を載せる(白紙を見せない)
   coverEl.onclick = openCover;
   wrapEl.append(bookEl, coverEl);
   $("stage").insertBefore(wrapEl, $("msg"));
@@ -229,7 +242,10 @@ function fit(){
 
 function update(idx){
   // idx=-1:表紙のみ / それ以外は見開きの左ページのリスト番号(0始まり)。PDFのページ番号は+2
-  const pages = idx < 0 ? [1] : [idx + 2, idx + 3].filter(x => x <= realCount);
+  let pages;
+  if(idx < 0) pages = [1];
+  else if(RTL) pages = [bookN - idx, bookN - idx + 1].filter(x => x <= realCount);
+  else pages = [idx + 2, idx + 3].filter(x => x <= realCount);
   info.textContent = `${pages.join("-")} / ${realCount}`;
   curPage = pages[0];
   markToc();
@@ -241,13 +257,15 @@ function goToPage(n){
   n = Math.min(Math.max(1, Math.round(n)), realCount);
   if(n === 1){
     if(!opened) return;
-    if(flip.getCurrentPageIndex() > 0) flip.turnToPage(0);
+    if(flip.getCurrentPageIndex() !== firstSpread()) flip.turnToPage(firstSpread());
     closeCover();
     return;
   }
-  const left = Math.floor((n - 2) / 2) * 2;
+  const e = Math.floor((n - 2) / 2) * 2;
+  const left = RTL ? bookN - 2 - e : e;
   if(!opened){
     flip.turnToPage(left);
+    initDone = true;
     openCover();
   }else if(flip.getCurrentPageIndex() !== left){
     flip.flip(left);
@@ -258,6 +276,7 @@ function goToPage(n){
 function openCover(){
   if(!flip || opened) return;
   opened = true;
+  if(!initDone){ if(RTL) flip.turnToPage(firstSpread()); initDone = true; }
   bookEl.classList.remove("rightonly");
   bookEl.classList.add("show");
   coverEl.classList.remove("snap", "blankback");
@@ -285,13 +304,33 @@ function closeCover(){
   update(-1);
 }
 
-function next(){ if(!flip) return; opened ? flip.flipNext() : openCover(); }
+// next=読み進める方向 / prev=戻る方向(右開きではライブラリの向きと逆)
+function next(){
+  if(!flip) return;
+  if(!opened) return openCover();
+  RTL ? flip.flipPrev() : flip.flipNext();
+}
 function prev(){
   if(!flip || !opened) return;
-  if(flip.getCurrentPageIndex() <= 0) closeCover(); else flip.flipPrev();
+  if(flip.getCurrentPageIndex() === firstSpread()) closeCover();
+  else RTL ? flip.flipNext() : flip.flipPrev();
 }
 
-$("next").onclick = next; $("prev").onclick = prev;
+// 画面の左ボタン/右ボタンの役割は綴じ方で入れ替わる(右開きは左が「次へ」)
+function applyBinding(){
+  $("prev").onclick = RTL ? next : prev;
+  $("next").onclick = RTL ? prev : next;
+  $("dirBtn").textContent = RTL ? "右開き" : "左開き";
+}
+applyBinding();
+$("dirBtn").onclick = () => {
+  RTL = !RTL;
+  applyBinding();
+  if(!images.length) return;
+  const keep = curPage;
+  build();
+  if(keep > 1) goToPage(keep);
+};
 $("tocBtn").onclick = e => { e.stopPropagation(); $("toc").classList.toggle("show"); };
 document.addEventListener("click", e => {
   if(!e.target.closest("#toc")) $("toc").classList.remove("show");
@@ -301,8 +340,8 @@ $("fs").onclick = () => {
   else document.documentElement.requestFullscreen?.();
 };
 window.addEventListener("keydown", e => {
-  if(e.key==="ArrowRight") next();
-  if(e.key==="ArrowLeft")  prev();
+  if(e.key==="ArrowRight") RTL ? prev() : next();
+  if(e.key==="ArrowLeft")  RTL ? next() : prev();
   if(e.key==="Escape") $("toc").classList.remove("show");
 });
 window.addEventListener("resize", fit);
