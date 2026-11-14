@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PDFブックビューア</title>
+<style>
+:root{--bg:#1d1b22;--fg:#eee;--ac:#b8a2ff;--panel:#2a2733;--panelA:rgba(42,39,51,.82)}
+@media (prefers-color-scheme: light){:root{--bg:#e9e6ef;--fg:#222;--ac:#6c4ee0;--panel:#fff;--panelA:rgba(255,255,255,.85)}}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--fg);font-family:system-ui,"Hiragino Sans","Yu Gothic",sans-serif;display:flex;flex-direction:column}
+#ui{position:absolute;left:50%;bottom:10px;transform:translateX(-50%);z-index:20;display:flex;gap:6px;align-items:center;justify-content:center;flex-wrap:wrap;max-width:calc(100% - 16px);padding:6px 10px;background:var(--panelA);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);border-radius:12px;box-shadow:0 2px 12px rgba(0,0,0,.3);transition:opacity .35s}
+#ui.idle{opacity:0;pointer-events:none}
+#ui [hidden]{display:none}
+#toc{display:none;position:absolute;left:50%;bottom:62px;transform:translateX(-50%);z-index:30;width:min(380px,calc(100% - 24px));max-height:60%;overflow:auto;background:var(--panel);border:1px solid var(--ac);border-radius:12px;padding:8px;box-shadow:0 4px 20px rgba(0,0,0,.4)}
+#toc.show{display:block}
+#toc h2{font-size:14px;margin:4px 8px 8px;opacity:.8}
+#toc ul{list-style:none;margin:0;padding:0}
+#toc li{display:flex;justify-content:space-between;gap:12px;padding:8px 10px;border-radius:8px;cursor:pointer;font-size:14px}
+#toc li:hover{background:rgba(128,128,128,.2)}
+#toc li.active{background:var(--ac);color:#fff}
+#toc li .pg{opacity:.7;font-variant-numeric:tabular-nums;flex:none}
+button,label.btn{background:transparent;color:var(--fg);border:1px solid var(--ac);border-radius:8px;padding:6px 12px;font-size:14px;cursor:pointer}
+button:hover,label.btn:hover{background:var(--ac);color:#fff}
+#info{min-width:90px;text-align:center;font-variant-numeric:tabular-nums}
+#stage{flex:1;display:flex;align-items:center;justify-content:center;min-height:0;padding:8px;position:relative}
+#wrap{position:relative;perspective:2400px}
+#book{width:100%;height:100%;opacity:0;pointer-events:none;transition:opacity .9s ease}
+#book.show{opacity:1;pointer-events:auto}
+#cover{position:absolute;top:0;left:50%;width:50%;height:100%;transform-origin:left center;transform-style:preserve-3d;transition:transform .9s ease;z-index:5;cursor:pointer;box-shadow:0 4px 18px rgba(0,0,0,.35)}
+#cover.open{transform:rotateY(-180deg);box-shadow:none}
+#cover.gone{visibility:hidden;pointer-events:none}
+#cover .f,#cover .b{position:absolute;inset:0;backface-visibility:hidden;-webkit-backface-visibility:hidden}
+#cover .f img{width:100%;height:100%;display:block}
+#cover .b{transform:rotateY(180deg);background:#fff}
+#cover .b img{width:100%;height:100%;display:block}
+#cover.blankback .b img{visibility:hidden}
+#cover.snap{transition:transform .9s ease}
+#book.rightonly{clip-path:inset(0 0 0 50%);transition:none}
+#drop{text-align:center;opacity:.8;line-height:1.9}
+#msg{position:absolute;inset:auto 0 66px 0;z-index:25;text-align:center;font-size:13px;opacity:.8;pointer-events:none}
+.page img{width:100%;height:100%;display:block;background:#fff}
+.page{background:#fff}
+</style>
+</head>
+<body>
+<div id="stage">
+  <div id="drop">ここにPDFをドラッグ＆ドロップ<br>または「PDFを開く」を押してください</div>
+  <div id="msg"></div>
+  <div id="toc"><h2>目次</h2><ul id="tocList"></ul></div>
+  <div id="ui">
+    <label class="btn" id="openBtn">PDFを開く<input id="file" type="file" accept="application/pdf" hidden></label>
+    <button id="tocBtn" hidden>目次</button>
+    <button id="prev">◀</button>
+    <span id="info">- / -</span>
+    <button id="next">▶</button>
+    <button id="fs">全画面</button>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/page-flip@2.0.7/dist/js/page-flip.browser.min.js"></script>
+<script>
+// ===== 設定 =====
+// サイトに置いたPDFを最初から表示したい場合はここにパスを書く(例: "book.pdf")。
+// または ?pdf=book.pdf のようにURLで指定もできます。空なら手動で開く方式。
+const DEFAULT_PDF = "";
+// 読み込めるPDFを指定した場合(上記 or ?pdf=)は「PDFを開く」ボタンを自動で隠します。
+// 目次(チャプター)を自分で決めたい場合はここに書く。空ならPDF内のしおりを自動で使います。
+// 例: [{title:"はじめに", page:2}, {title:"第1章", page:5}, {title:"1-1 節", page:6, level:1}]
+const CHAPTERS = [];
+const RENDER_WIDTH = 0;    // 1ページの描画解像度(px)。0=画面の大きさから自動(1600〜3200)。固定したい場合は数値を入れる
+const JPEG_QUALITY = 0.95; // 画質(0〜1)
+
+pdfjsLib.GlobalWorkerOptions.workerSrc =
+  "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+
+const $ = id => document.getElementById(id);
+let bookEl = null; const info = $("info"), msg = $("msg");
+let flip = null, images = [], realCount = 0, ratio = 1.414;
+let chapters = [], curPage = 1;
+
+// PDF内のしおり(アウトライン)をページ番号つきの一覧にする
+async function readOutline(pdf){
+  const out = [];
+  let outline = null;
+  try{ outline = await pdf.getOutline(); }catch(e){}
+  if(!outline) return out;
+  async function walk(items, level){
+    for(const it of items){
+      let num = null;
+      try{
+        let dest = it.dest;
+        if(typeof dest === "string") dest = await pdf.getDestination(dest);
+        if(Array.isArray(dest)){
+          const ref = dest[0];
+          num = (typeof ref === "number") ? ref + 1 : (await pdf.getPageIndex(ref)) + 1;
+        }
+      }catch(e){}
+      if(num) out.push({title: it.title, page: num, level});
+      if(it.items && it.items.length) await walk(it.items, level + 1);
+    }
+  }
+  await walk(outline, 0);
+  return out;
+}
+
+function renderToc(){
+  const ul = $("tocList");
+  ul.innerHTML = "";
+  chapters.forEach((c, i) => {
+    const li = document.createElement("li");
+    li.dataset.i = i;
+    li.style.paddingLeft = (10 + (c.level || 0) * 16) + "px";
+    const t = document.createElement("span"); t.textContent = c.title;
+    const g = document.createElement("span"); g.className = "pg"; g.textContent = c.page;
+    li.append(t, g);
+    li.onclick = () => { goToPage(c.page); $("toc").classList.remove("show"); };
+    ul.appendChild(li);
+  });
+  $("tocBtn").hidden = chapters.length === 0;
+  markToc();
+}
+function markToc(){
+  let active = -1;
+  chapters.forEach((c, i) => { if(c.page <= curPage && (active < 0 || c.page >= chapters[active].page)) active = i; });
+  document.querySelectorAll("#tocList li").forEach(li => li.classList.toggle("active", +li.dataset.i === active));
+}
+
+async function loadPdf(source){
+  try{
+    msg.textContent = "読み込み中…";
+    // 日本語フォントが埋め込まれていないPDFで文字が崩れないよう、文字コード表と標準フォントも読み込む
+    const base = "https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/";
+    const opts = {cMapUrl: base+"cmaps/", cMapPacked: true, standardFontDataUrl: base+"standard_fonts/"};
+    const pdf = await pdfjsLib.getDocument(typeof source === "string" ? {url: source, ...opts} : {...source, ...opts}).promise;
+    let renderWidth = RENDER_WIDTH;
+    images = [];
+    for(let i=1;i<=pdf.numPages;i++){
+      const page = await pdf.getPage(i);
+      const v0 = page.getViewport({scale:1});
+      if(i===1) ratio = v0.height / v0.width;
+      if(i===1 && !renderWidth){
+        // 全画面でも粗くならないよう、画面いっぱいに表示した場合のページ幅(実ピクセル)の1.5倍で描画
+        const dpr = window.devicePixelRatio || 1;
+        const cssW = Math.min(screen.width/2, (screen.height - 70)/ratio);
+        renderWidth = Math.min(3200, Math.max(1600, Math.round(cssW*dpr*1.5)));
+      }
+      const scale = renderWidth / v0.width;
+      const vp = page.getViewport({scale});
+      const c = document.createElement("canvas");
+      c.width = vp.width; c.height = vp.height;
+      await page.render({canvasContext:c.getContext("2d"), viewport:vp}).promise;
+      const blob = await new Promise(r => c.toBlob(r, "image/jpeg", JPEG_QUALITY));
+      images.push(URL.createObjectURL(blob));
+      c.width = c.height = 0; // メモリ解放
+      msg.textContent = `変換中 ${i} / ${pdf.numPages}`;
+    }
+    realCount = images.length;
+    chapters = CHAPTERS.length ? CHAPTERS.map(c => ({level:0, ...c})) : await readOutline(pdf);
+    msg.textContent = "";
+    build();
+    renderToc();
+  }catch(e){
+    console.error(e);
+    msg.textContent = "PDFを読み込めませんでした: " + e.message;
+    $("openBtn").hidden = false; // 読み込めなかったときは手動で開けるようにする
+    $("drop").style.display = "";
+  }
+}
+
+function blankPage(){
+  const c = document.createElement("canvas");
+  c.width = 10; c.height = Math.round(10*ratio);
+  const x = c.getContext("2d"); x.fillStyle="#fff"; x.fillRect(0,0,c.width,c.height);
+  return c.toDataURL("image/png");
+}
+
+let wrapEl = null, coverEl = null, opened = false;
+
+function build(){
+  // destroy()は本体のDOM要素ごと消すので、毎回新しい要素を作り直す
+  if(flip){ try{ flip.destroy(); }catch(e){} flip = null; }
+  if(wrapEl && wrapEl.parentNode) wrapEl.remove();
+  $("drop").style.display = "none";
+  opened = false;
+
+  // 2ページ目以降を見開きの本にする。表紙は別パーツ(裏が白紙のめくり板)として扱う
+  const list = images.slice(1);
+  if(list.length === 0 || list.length % 2) list.push(blankPage());
+
+  wrapEl = document.createElement("div");
+  wrapEl.id = "wrap";
+  bookEl = document.createElement("div");
+  bookEl.id = "book";
+  coverEl = document.createElement("div");
+  coverEl.id = "cover";
+  coverEl.innerHTML = '<div class="f"><img alt="表紙"></div><div class="b"><img alt=""></div>';
+  coverEl.querySelector(".f img").src = images[0];
+  coverEl.querySelector(".b img").src = list[0]; // 開くときは裏面に2ページ目を載せる(白紙を見せない)
+  coverEl.onclick = openCover;
+  wrapEl.append(bookEl, coverEl);
+  $("stage").insertBefore(wrapEl, $("msg"));
+  fit();
+
+  const w = 600, h = Math.round(w*ratio);
+  flip = new St.PageFlip(bookEl, {
+    width:w, height:h, size:"stretch",
+    minWidth:180, maxWidth:4000, minHeight:180*ratio, maxHeight:4000*ratio,
+    showCover:false, maxShadowOpacity:0.5, flippingTime:700,
+    usePortrait:false, mobileScrollSupport:false, autoSize:true
+  });
+  flip.loadFromImages(list);
+  flip.on("flip", e => update(e.data));
+  update(-1);
+}
+
+function fit(){
+  if(!wrapEl) return;
+  const st = $("stage"), cs = getComputedStyle(st);
+  const availW = st.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+  const availH = st.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom);
+  const bw = 2, bh = ratio;
+  const s = Math.min(availW/bw, availH/bh);
+  wrapEl.style.width = Math.floor(bw*s) + "px";
+  wrapEl.style.height = Math.floor(bh*s) + "px";
+}
+
+function update(idx){
+  // idx=-1:表紙のみ / それ以外は見開きの左ページのリスト番号(0始まり)。PDFのページ番号は+2
+  const pages = idx < 0 ? [1] : [idx + 2, idx + 3].filter(x => x <= realCount);
+  info.textContent = `${pages.join("-")} / ${realCount}`;
+  curPage = pages[0];
+  markToc();
+}
+
+// 指定ページ(PDFのページ番号)へ移動
+function goToPage(n){
+  if(!flip) return;
+  n = Math.min(Math.max(1, Math.round(n)), realCount);
+  if(n === 1){
+    if(!opened) return;
+    if(flip.getCurrentPageIndex() > 0) flip.turnToPage(0);
+    closeCover();
+    return;
+  }
+  const left = Math.floor((n - 2) / 2) * 2;
+  if(!opened){
+    flip.turnToPage(left);
+    openCover();
+  }else if(flip.getCurrentPageIndex() !== left){
+    flip.flip(left);
+  }
+  update(left);
+}
+
+function openCover(){
+  if(!flip || opened) return;
+  opened = true;
+  bookEl.classList.remove("rightonly");
+  bookEl.classList.add("show");
+  coverEl.classList.remove("snap", "blankback");
+  coverEl.classList.add("open");
+  setTimeout(() => { if(opened) coverEl.classList.add("gone"); }, 950);
+  update(flip.getCurrentPageIndex());
+}
+function closeCover(){
+  if(!flip || !opened) return;
+  opened = false;
+  // 戻るときは、めくる板の裏を白紙にし、左側の2ページ目は即座に消す
+  bookEl.classList.add("rightonly");
+  coverEl.classList.add("snap", "blankback");
+  coverEl.classList.remove("gone");
+  requestAnimationFrame(() => coverEl.classList.remove("open"));
+  setTimeout(() => {
+    if(!opened){
+      // フェードさせずに即座に隠す(左側に2ページ目が一瞬出るのを防ぐ)
+      bookEl.style.transition = "none";
+      bookEl.classList.remove("show", "rightonly");
+      void bookEl.offsetWidth;
+      bookEl.style.transition = "";
+    }
+  }, 950);
+  update(-1);
+}
+
+function next(){ if(!flip) return; opened ? flip.flipNext() : openCover(); }
+function prev(){
+  if(!flip || !opened) return;
+  if(flip.getCurrentPageIndex() <= 0) closeCover(); else flip.flipPrev();
+}
+
+$("next").onclick = next; $("prev").onclick = prev;
+$("tocBtn").onclick = e => { e.stopPropagation(); $("toc").classList.toggle("show"); };
+document.addEventListener("click", e => {
+  if(!e.target.closest("#toc")) $("toc").classList.remove("show");
+});
+$("fs").onclick = () => {
+  if(document.fullscreenElement) document.exitFullscreen();
+  else document.documentElement.requestFullscreen?.();
+};
+window.addEventListener("keydown", e => {
+  if(e.key==="ArrowRight") next();
+  if(e.key==="ArrowLeft")  prev();
+  if(e.key==="Escape") $("toc").classList.remove("show");
+});
+window.addEventListener("resize", fit);
+
+// 操作バーはPDFに重ねて表示し、しばらく操作がなければ薄く消す(マウス移動・タップ・キー操作で再表示)
+let idleT = null;
+function wake(){
+  const ui = $("ui");
+  ui.classList.remove("idle");
+  clearTimeout(idleT);
+  idleT = setTimeout(() => {
+    if(!$("toc").classList.contains("show") && !ui.matches(":hover")) ui.classList.add("idle");
+  }, 3000);
+}
+["mousemove","pointerdown","touchstart","keydown"].forEach(ev => window.addEventListener(ev, wake, {passive:true}));
+wake();
+
+$("file").onchange = e => {
+  const f = e.target.files[0]; if(!f) return;
+  f.arrayBuffer().then(buf => loadPdf({data:buf}));
+};
+const stageEl = $("stage");
+stageEl.addEventListener("dragover", e => e.preventDefault());
+stageEl.addEventListener("drop", e => {
+  e.preventDefault();
+  const f = e.dataTransfer.files[0];
+  if(f && f.type==="application/pdf") f.arrayBuffer().then(buf => loadPdf({data:buf}));
+});
+
+const q = new URLSearchParams(location.search).get("pdf") || DEFAULT_PDF;
+if(q){
+  // サイトに置いたPDFを読み込むときは「PDFを開く」ボタンと案内文を隠す
+  $("openBtn").hidden = true;
+  $("drop").style.display = "none";
+  loadPdf(q);
+}
+</script>
+</body>
+</html>

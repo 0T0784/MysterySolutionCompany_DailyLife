@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>怪異変解決社の日常</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Shippori+Mincho:wght@400;600;800&display=swap" rel="stylesheet">
+<!--
+  ★ 書き換える場所
+   ・タイトル … <h1> の中と <title>
+   ・イントロの文章 … #intro の中
+   ・キャラクター … 下のスクリプト冒頭の CHARS（8人分。1人目のアルカだけ入力済み）
+   ・キャラクター画像 … images/chars/01.png 〜 08.png（立ち絵）。CHARS の img で変更可
+   ・自動スライドの間隔 … スクリプト冒頭の AUTO_SEC（0 にすると自動送りなし）
+-->
+<style>
+:root{--bg:#1f1f1f;--red:#f50000;--deep:#b80a0a;--ink:#fff}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth;scroll-padding-top:72px}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:"Shippori Mincho","Noto Serif JP","Hiragino Mincho ProN","Yu Mincho",serif;line-height:2;letter-spacing:.12em;overflow-x:hidden}
+a{color:inherit}
+:focus-visible{outline:3px solid #fff;outline-offset:3px}
+
+/* 赤いにじみ（画像と同じ左下の赤） */
+.glow{position:fixed;inset:0;z-index:-1;pointer-events:none;
+  background:
+   radial-gradient(ellipse 120% 40% at 10% 105%,var(--red) 0,rgba(245,0,0,.55) 40%,transparent 75%),
+   radial-gradient(ellipse 60% 60% at -5% 85%,rgba(245,0,0,.8) 0,transparent 70%),
+   var(--bg)}
+
+header{position:sticky;top:0;z-index:10;background:rgba(31,31,31,.78);backdrop-filter:blur(6px)}
+.nav{max-width:1200px;margin:0 auto;padding:12px 24px;display:flex;gap:clamp(16px,4vw,48px);align-items:center;justify-content:center}
+.nav a{text-decoration:none;font-weight:600;padding:2px 4px;border-bottom:2px solid transparent}
+.nav a:hover,.nav a.on{border-color:var(--red)}
+
+/* ヒーロー */
+.hero{min-height:calc(100svh - 56px);display:grid;place-items:center;text-align:center;padding:40px 24px}
+.hero h1{margin:0;font-size:clamp(2rem,8vw,6.4rem);font-weight:800;letter-spacing:.2em;line-height:1.3;text-indent:.2em;
+  -webkit-text-stroke:3px #000;paint-order:stroke fill}
+.hero h1 em{font-style:normal;color:var(--red)}
+
+.btn{display:inline-block;margin-top:2.4em;min-width:240px;padding:14px 40px;text-decoration:none;font-weight:800;font-size:clamp(1rem,2.4vw,1.4rem);letter-spacing:.3em;text-indent:.3em;color:#fff;
+  background:linear-gradient(#e00000,var(--deep));border:2px solid #fff;outline:1px solid #000;outline-offset:-6px;box-shadow:0 0 24px rgba(245,0,0,.45);transition:background .3s,box-shadow .3s,color .3s}
+.btn:hover{background:#fff;color:var(--deep);box-shadow:0 0 32px rgba(245,0,0,.8)}
+
+/* 見出し（Introduction など） */
+h2{margin:0;text-align:center;font-weight:400;line-height:1.2}
+h2 .en{display:block;font-size:clamp(2.6rem,9.5vw,7.4rem);letter-spacing:.14em;text-indent:.14em;
+  -webkit-text-stroke:3px #000;paint-order:stroke fill}
+h2 .ja{display:block;margin-top:.4em;font-size:clamp(1rem,2.6vw,1.9rem);letter-spacing:.5em;text-indent:.5em;font-weight:600;
+  -webkit-text-stroke:2px #000;paint-order:stroke fill}
+section{padding:96px 24px 40px}
+
+/* Introduction */
+.catch{margin:1.6em 0 1em;text-align:center;font-size:clamp(1.8rem,5.6vw,4rem);font-weight:600;letter-spacing:.14em;line-height:1.4}
+.catch em{font-style:normal;color:var(--red)}
+.intro{max-width:980px;margin:0 auto;text-align:center;font-size:clamp(.95rem,2.5vw,1.9rem);font-weight:600;letter-spacing:.2em;line-height:2.15;text-wrap:balance}
+.intro p{margin:0}
+
+/* キャラクター（スワイプ） */
+.cwrap{position:relative;max-width:1280px;margin:36px auto 0}
+.track{display:flex;overflow-x:auto;scroll-snap-type:x mandatory;scrollbar-width:none;-webkit-overflow-scrolling:touch;overscroll-behavior-x:contain;cursor:grab;touch-action:pan-y pinch-zoom}
+.track::-webkit-scrollbar{display:none}
+.track.drag{scroll-snap-type:none;cursor:grabbing;user-select:none}
+.slide{flex:0 0 100%;scroll-snap-align:center;display:grid;grid-template-columns:minmax(220px,.8fr) 1.4fr;gap:clamp(12px,3vw,48px);align-items:center;padding:0 clamp(44px,6vw,96px)}
+.fig{aspect-ratio:3/5;max-height:76vh;width:100%;display:grid;place-items:center}
+.fig img{width:100%;height:100%;object-fit:contain;display:block;pointer-events:none;-webkit-user-drag:none}
+.fig .ph{width:70%;aspect-ratio:3/5;border:2px dashed #ffffff66;display:grid;place-items:center;text-align:center;font-size:.85rem;color:#ffffffaa;padding:8px}
+.cname{margin:0 0 .3em;font-size:clamp(1.8rem,5vw,4rem);font-weight:600;letter-spacing:.14em;line-height:1.3;
+  -webkit-text-stroke:2px #000;paint-order:stroke fill}
+.ctext{margin:0;font-size:clamp(.9rem,1.9vw,1.55rem);font-weight:600;letter-spacing:.16em;line-height:2.1}
+.arrow{position:absolute;top:50%;translate:0 -50%;z-index:2;width:56px;height:96px;border:0;background:none;color:#fff;cursor:pointer;display:grid;place-items:center;padding:0}
+.arrow svg{width:34px;height:80px;display:block;filter:drop-shadow(0 0 3px #000)}
+.arrow:hover{color:#ffb0b0}
+.arrow.prev{left:0}.arrow.next{right:0}
+.dots{display:flex;gap:10px;justify-content:center;margin:28px 0 0;padding:0;list-style:none;flex-wrap:wrap}
+.dots button{width:46px;height:46px;border-radius:50%;padding:0;cursor:pointer;border:1px solid #ffffffcc;background:#1f1f1f;color:#fff;font:inherit;font-size:.8rem;letter-spacing:0;transition:background .3s,border-color .3s}
+.dots button[aria-current="true"]{background:#8a0000;border-color:#ff6a6a;box-shadow:0 0 0 2px #f5000088}
+.dots button:hover{border-color:#fff}
+
+footer{padding:64px 24px 40px;text-align:center;font-size:.85rem;color:#ffffffcc}
+footer p{margin:.2em 0}
+
+@media(max-width:760px){
+  .slide{grid-template-columns:1fr;text-align:center;padding:0 44px;gap:8px}
+  .fig{max-height:52vh;aspect-ratio:3/4}
+  .arrow{width:40px}.arrow svg{width:22px;height:56px}
+  .intro{letter-spacing:.1em}
+  .dots button{width:38px;height:38px}
+}
+/* 下から上へフェードイン（JSが動くときだけ非表示から始める） */
+.js .rv{opacity:0;transform:translateY(36px);transition:opacity 1.1s ease var(--d,0s),transform 1.1s cubic-bezier(.2,.7,.2,1) var(--d,0s)}
+.js .rv.in{opacity:1;transform:none}
+@media(prefers-reduced-motion:reduce){.js .rv{opacity:1;transform:none;transition:none}html{scroll-behavior:auto}.dots button{transition:none}}
+</style>
+</head>
+<body>
+<div class="glow" aria-hidden="true"></div>
+
+<header>
+  <nav class="nav" aria-label="メニュー">
+    <a href="#top">トップ</a>
+    <a href="#intro">イントロダクション</a>
+    <a href="#chara">キャラクター</a>
+  </nav>
+</header>
+
+<main id="top">
+  <div class="hero">
+    <div>
+      <!-- ★ ゲームのタイトルに書き換える -->
+      <h1><em>怪異変</em>解決社の日常</h1>
+      <!-- ★ 小説ページのリンク先に書き換える（別サイトなら target="_blank" rel="noopener" を付ける） -->
+      <a class="btn" href="novel.html">小説を読む</a>
+    </div>
+  </div>
+
+  <section id="intro">
+    <h2><span class="en">Introduction</span><span class="ja">イントロダクション</span></h2>
+    <p class="catch">どんな<em>怪異変</em>をお抱えで？</p>
+    <div class="intro">
+      <p>眠れない国、ドルミ国。</p>
+      <p>その国のどこかにあるビルの2階に怪異変解決を生業とする会社があった。</p>
+      <p>社長で吸血鬼のアルカ、副社長で人狼のウル、幽霊のレイ、</p>
+      <p>霊使いのゲン、メデューサのメドサ。</p>
+      <p>そんな種族も性格も違う社内はいつも賑やかで依頼が絶えない。</p>
+      <p>そんなある日、「吸血鬼に襲われた」という依頼から</p>
+      <p>社長の封じた過去の記憶と会社の運命が動き出す！</p>
+    </div>
+  </section>
+
+  <section id="chara">
+    <h2><span class="en">Character</span><span class="ja">キャラクター</span></h2>
+    <div class="cwrap" role="region" aria-roledescription="カルーセル" aria-label="キャラクター紹介">
+      <button class="arrow prev" type="button" aria-label="前のキャラクター"><svg viewBox="0 0 34 80" aria-hidden="true"><path d="M32 2 3 40l29 38" fill="none" stroke="currentColor" stroke-width="3"/></svg></button>
+      <div class="track" id="track" tabindex="0" aria-live="off"></div>
+      <button class="arrow next" type="button" aria-label="次のキャラクター"><svg viewBox="0 0 34 80" aria-hidden="true"><path d="M2 2l29 38L2 78" fill="none" stroke="currentColor" stroke-width="3"/></svg></button>
+      <ul class="dots" id="dots"></ul>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <p>© （サークル名・制作者名）</p>
+</footer>
+
+<script>
+/* ★ キャラクター（8人分）。name=名前 / text=説明（配列の1要素＝1行） / img=立ち絵 / icon=下の丸ボタンに出す顔アイコン（省略可） */
+const CHARS=[
+  {name:"アルカ・ドレッド",
+   text:["白い髪と逆さ十字のピアスがトレードマークの23歳の吸血鬼。","怪異変解決社の社長。","軍人だったが、2年前に起きたとある怪異変がきっかけで軍を辞めた。","かなりの甘党で、紅茶には必ずミルク二つと角砂糖五つ入れる。コーヒーにはその倍入れる。","従兄弟しか知らない過去がある。","得意なことはカードゲーム全般で、特にババ抜きが得意。"],
+   img:"images/chars/01.png", icon:"images/icon/01.png"},
+  {name:"ウル・アズロ",text:["狼の耳と青い目がトレードマークの26歳の人狼","怪異異変解決社の副社長","アルカと同じく元軍人で、アルカの右腕だった。","ある時アルカに救われ、一生ついていくと決めたため、アルカが軍を辞めたと知り、自分も辞めた。","解決社で１番のしっかり者で、会社の経理も担当している。","孤児院出身で、よく年下の子のお世話をしていたので、子供の扱いが得意。","得意なとこは料理で、得意料理はハンバーグ。"],img:"images/chars/02.png",icon:"images/icon/02.png"},
+  {name:"レイ・シノミヤ",text:["お化けのパーカーがトレードマークの享年18歳の幽霊。","怪異変解決社のサイバー担当。","生前は明るい性格の高校生だったが、家庭環境が劣悪だった。","それが原因で精神を病み、自ら命を絶ってしまった。","幽霊になった後、暇つぶしに人の家に忍び込み家のパソコンの設定をいじったり、動画を見たりしていたところをアルカたちに懲らしめられた。","得意なことはゲームで、特にFPSが得意。"],img:"images/chars/03.png",icon:"images/icon/03.png"},
+  {name:"メドサ・ミド",text:["眼帯とサイドテールがトレードマークの17歳のメデューサ。","怪異変解決社にバイトとして働いている高校2年生。","進路について悩みがある。","自分の右目を見た人を1時間ほど石に変える能力を持つ。","アルカほどではないが甘党で、休みの日にはよくスイーツ巡りをしており、手帳に行ったお店と食べたスイーツを記録している。","通称ミドシュラン。","得意なことはカラオケで、平均点は94点。"],img:"images/chars/04.png",icon:"images/icon/04.png"},
+  {name:"ゲン。レイオウ",text:["紺色のコートと灰色の髪がトレードマークの24歳の霊使い。","怪異変解決社の特殊異変要因。","軍人だったが、2年前に起こった怪異変で両目とも失明してしまい、軍では働けないと思って辞めた。","両目とも失明しているが、自分に仕えている霊たちが生活をサポートしてくれているので支障はない。","のんびりな口調で、いつもにこにこしているため何を考えているのか分からない。","得意なことは将棋で、1度も負けたことがない。"],img:"images/chars/05.png",icon:"images/icon/05.png"},
+  {name:"セイ・ヒュー",text:["目の下のクマと金色のピアスがトレードマークの40歳人間。","ドルミ国警察の刑事。アルカとは古い知り合い。","怪異変解決社にはよく遊びに来るついでに、仕事とお菓子を一緒に持ってくる。","メドサからはお菓子のおじさんと思われている。","車の運転が得意で、法定速度を守りながら短時間で目的地に着く。","忙しくてまともに寝ておらず、いつも目の下にクマができている。"],img:"images/chars/06.png",icon:"images/icon/06.png"},
+  {name:"メディ・ドレッド",text:["逆さ十字のチョーカーとメガネがトレードマークの30歳の人間と吸血鬼のハーフ。アルカの従兄弟。","怪専門の医者をやっている。","顔にある傷は数年前、治療していた怪があまりの痛さに防衛本能で攻撃してきたときに付いたもの。","アルカの過去を知っており、トラウマが発動した際の対処法をウルに教えている。","得意なことはスイーツづくりで、休みの日はスイーツを作るために家に籠りがち。"],img:"images/chars/07.png",icon:"images/icon/07.png"},
+  {name:"アルマ・ドレッド",text:["白い長髪と赤い目がトレードマークの26歳の吸血鬼。","メディと同じ病院で働いていて、アルカの過去を知っている。","休日は実家に帰り、病弱な母に付き添っている。","アルカとメディには言っていないが、人間の恋人がいる。","血液で銃器を作る能力を持っているが、日常で使うことはほぼない。","得意なことは射的で、幼いころに遊園地の射的で景品をほぼ撃ち落とした伝説がある。"],img:"images/chars/08.png",icon:"images/icon/08.png"}
+];
+const AUTO_SEC=6;   // 自動で次へ送る間隔（秒）。0で自動送りなし
+
+const $=id=>document.getElementById(id);
+const el=(t,c,x)=>{const e=document.createElement(t);if(c)e.className=c;if(x!=null)e.textContent=x;return e};
+const track=$("track"), dots=$("dots"), N=CHARS.length;
+const reduce=matchMedia("(prefers-reduced-motion: reduce)").matches;
+let cur=0, timer=null, paused=false;
+
+// スライドと丸ボタンを作る
+CHARS.forEach((c,i)=>{
+  const s=el("article","slide");
+  s.setAttribute("role","group");s.setAttribute("aria-roledescription","スライド");s.setAttribute("aria-label",`${i+1} / ${N}`);
+  const fig=el("div","fig");
+  const im=new Image();im.alt=c.name;im.draggable=false;
+  im.onerror=()=>fig.replaceChildren(el("div","ph",c.img+" を置いてください"));
+  im.src=c.img;fig.append(im);
+  const box=el("div");
+  const t=el("p","ctext");
+  c.text.forEach((l,k)=>{if(k)t.append(document.createElement("br"));t.append(l)});
+  box.append(el("h3","cname",c.name),t);
+  s.append(fig,box);track.append(s);
+
+  const li=el("li"), b=el("button");
+  b.type="button";b.setAttribute("aria-label",`${c.name}を表示`);
+  if(c.icon){const ic=new Image();ic.alt="";ic.draggable=false;ic.style.cssText="width:100%;height:100%;border-radius:50%;object-fit:cover;display:block;pointer-events:none";
+    ic.onerror=()=>{ic.remove();b.textContent=i+1};ic.src=c.icon;b.append(ic)}else b.textContent=i+1;
+  b.onclick=()=>{go(i);restart()};
+  li.append(b);dots.append(li);
+});
+
+function mark(i){
+  cur=i;
+  [...dots.children].forEach((li,k)=>{const b=li.firstChild;k===i?b.setAttribute("aria-current","true"):b.removeAttribute("aria-current")});
+}
+function go(i){
+  i=(i+N)%N;
+  track.scrollTo({left:i*track.clientWidth,behavior:reduce?"auto":"smooth"});
+  mark(i);
+}
+// スワイプ・ドラッグで動いたときに現在位置を更新
+let raf=0;
+track.addEventListener("scroll",()=>{cancelAnimationFrame(raf);raf=requestAnimationFrame(()=>{
+  const i=Math.round(track.scrollLeft/track.clientWidth);if(i!==cur)mark(Math.max(0,Math.min(N-1,i)))})},{passive:true});
+addEventListener("resize",()=>{track.scrollTo({left:cur*track.clientWidth,behavior:"auto"})});
+
+document.querySelector(".arrow.prev").onclick=()=>{go(cur-1);restart()};
+document.querySelector(".arrow.next").onclick=()=>{go(cur+1);restart()};
+track.addEventListener("keydown",e=>{
+  if(e.key==="ArrowLeft"){go(cur-1);restart();e.preventDefault()}
+  if(e.key==="ArrowRight"){go(cur+1);restart();e.preventDefault()}
+});
+
+// マウスのドラッグでもスワイプできるように（タッチは標準のスワイプ）
+(()=>{
+  let down=false,sx=0,sl=0,moved=false;
+  track.addEventListener("pointerdown",e=>{if(e.pointerType!=="mouse")return;down=true;moved=false;sx=e.clientX;sl=track.scrollLeft});
+  addEventListener("pointermove",e=>{
+    if(!down)return;const dx=e.clientX-sx;
+    if(Math.abs(dx)>4){moved=true;track.classList.add("drag")}
+    if(moved)track.scrollLeft=sl-dx;
+  });
+  addEventListener("pointerup",e=>{
+    if(!down)return;down=false;
+    if(moved){track.classList.remove("drag");const d=e.clientX-sx;go(d<-40?cur+1:d>40?cur-1:cur);restart()}
+  });
+})();
+
+// 自動スライド（触っている間・タブが裏にある間・画面外のときは止める）
+function restart(){clearInterval(timer);if(!AUTO_SEC||reduce)return;timer=setInterval(()=>{if(!paused&&!document.hidden&&inView)go(cur+1)},AUTO_SEC*1000)}
+let inView=true;
+new IntersectionObserver(es=>{inView=es[0].isIntersecting},{threshold:.3}).observe($("chara"));
+const wrap=document.querySelector(".cwrap");
+["pointerenter","focusin","touchstart"].forEach(ev=>wrap.addEventListener(ev,()=>{paused=true},{passive:true}));
+["pointerleave","focusout"].forEach(ev=>wrap.addEventListener(ev,()=>{paused=false}));
+wrap.addEventListener("touchend",()=>{setTimeout(()=>{paused=false;restart()},2500)},{passive:true});
+mark(0);restart();
+
+// メニューの下線（今見ている場所）
+(()=>{
+  const links=[...document.querySelectorAll(".nav a")], secs=links.map(a=>document.querySelector(a.getAttribute("href")));
+  const spy=()=>{let c=0;secs.forEach((s,i)=>{if(s.getBoundingClientRect().top<=innerHeight*.4)c=i});links.forEach((a,i)=>a.classList.toggle("on",i===c))};
+  addEventListener("scroll",spy,{passive:true});spy();
+})();
+
+// 下から上へフェードイン：画面に入ったときに1回だけ（段落は少しずつ時間差）
+(()=>{
+  document.documentElement.classList.add("js");
+  const els=[...document.querySelectorAll(".hero h1,.hero .btn,h2 .en,h2 .ja,.catch,.intro p,.cwrap,footer p")];
+  els.forEach(e=>{
+    e.classList.add("rv");
+    if(e.matches(".intro p"))e.style.setProperty("--d",(([...e.parentNode.children].indexOf(e))*.12).toFixed(2)+"s");
+    if(e.matches(".hero .btn"))e.style.setProperty("--d",".3s");
+    if(e.matches("h2 .ja"))e.style.setProperty("--d",".15s");
+  });
+  if(!("IntersectionObserver" in window)){els.forEach(e=>e.classList.add("in"));return}
+  const io=new IntersectionObserver(es=>es.forEach(x=>{if(x.isIntersecting){x.target.classList.add("in");io.unobserve(x.target)}}),{threshold:.15,rootMargin:"0px 0px -4% 0px"});
+  els.forEach(e=>io.observe(e));
+})();
+</script>
+</body>
+</html>
